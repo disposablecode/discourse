@@ -3,16 +3,12 @@ require_dependency 'email/sender'
 module Jobs
 
   # Asynchronously send an email to a user
-  class UserEmail < Jobs::Base
+  class UserMailingListEmail < Jobs::Base
+    sidekiq_options queue: 'special'
 
     def execute(args)
       raise Discourse::InvalidParameters.new(:user_id) unless args[:user_id].present?
       raise Discourse::InvalidParameters.new(:type)    unless args[:type].present?
-
-      if args[:type] == :mailing_list
-        Jobs.enqueue(:user_mailing_list_email, type: args[:type], user_id: args[:user_id])
-        return
-      end
 
       post = nil
       notification = nil
