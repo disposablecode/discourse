@@ -1,8 +1,7 @@
-import computed from 'ember-addons/ember-computed-decorators';
-import ModalFunctionality from 'discourse/mixins/modal-functionality';
-import { ajax } from 'discourse/lib/ajax';
-import { extractError } from 'discourse/lib/ajax-error';
-import { userPath } from 'discourse/lib/url';
+import computed from "ember-addons/ember-computed-decorators";
+import ModalFunctionality from "discourse/mixins/modal-functionality";
+import { extractError } from "discourse/lib/ajax-error";
+import { changeEmail } from "discourse/lib/user-activation";
 
 export default Ember.Controller.extend(ModalFunctionality, {
   login: Ember.inject.controller(),
@@ -11,26 +10,27 @@ export default Ember.Controller.extend(ModalFunctionality, {
   newEmail: null,
   password: null,
 
-  @computed('newEmail', 'currentEmail')
+  @computed("newEmail", "currentEmail")
   submitDisabled(newEmail, currentEmail) {
     return newEmail === currentEmail;
   },
 
   actions: {
     changeEmail() {
-      const login = this.get('login');
+      const login = this.get("login");
 
-      ajax(userPath('update-activation-email'), {
-        data: {
-          username: login.get('loginName'),
-          password: login.get('loginPassword'),
-          email: this.get('newEmail')
-        },
-        type: 'PUT'
-      }).then(() => {
-        const modal = this.showModal('activation-resent', {title: 'log_in'});
-        modal.set('currentEmail', this.get('newEmail'));
-      }).catch(err => this.flash(extractError(err), 'error'));
+      changeEmail({
+        username: login.get("loginName"),
+        password: login.get("loginPassword"),
+        email: this.get("newEmail")
+      })
+        .then(() => {
+          const modal = this.showModal("activation-resent", {
+            title: "log_in"
+          });
+          modal.set("currentEmail", this.get("newEmail"));
+        })
+        .catch(err => this.flash(extractError(err), "error"));
     }
   }
 });

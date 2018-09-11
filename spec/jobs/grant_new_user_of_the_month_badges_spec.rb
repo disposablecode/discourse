@@ -24,6 +24,44 @@ describe Jobs::GrantNewUserOfTheMonthBadges do
     expect(badge).to be_present
   end
 
+  it "does nothing if badges are disabled" do
+    SiteSetting.enable_badges = false
+
+    user = Fabricate(:user, created_at: 1.week.ago)
+    p = Fabricate(:post, user: user)
+    Fabricate(:post, user: user)
+
+    old_user = Fabricate(:user, created_at: 6.months.ago)
+    PostAction.act(old_user, p, PostActionType.types[:like])
+    old_user = Fabricate(:user, created_at: 6.months.ago)
+    PostAction.act(old_user, p, PostActionType.types[:like])
+
+    SystemMessage.any_instance.expects(:create).never
+    granter.execute({})
+
+    badge = user.user_badges.where(badge_id: Badge::NewUserOfTheMonth)
+    expect(badge).to be_blank
+  end
+
+  it "does nothing if the badge is disabled" do
+    Badge.find(Badge::NewUserOfTheMonth).update_column(:enabled, false)
+
+    user = Fabricate(:user, created_at: 1.week.ago)
+    p = Fabricate(:post, user: user)
+    Fabricate(:post, user: user)
+
+    old_user = Fabricate(:user, created_at: 6.months.ago)
+    PostAction.act(old_user, p, PostActionType.types[:like])
+    old_user = Fabricate(:user, created_at: 6.months.ago)
+    PostAction.act(old_user, p, PostActionType.types[:like])
+
+    SystemMessage.any_instance.expects(:create).never
+    granter.execute({})
+
+    badge = user.user_badges.where(badge_id: Badge::NewUserOfTheMonth)
+    expect(badge).to be_blank
+  end
+
   it "does nothing if it's been awarded recently" do
     u0 = Fabricate(:user, created_at: 2.weeks.ago)
     BadgeGranter.grant(Badge.find(Badge::NewUserOfTheMonth), u0)
@@ -59,6 +97,19 @@ describe Jobs::GrantNewUserOfTheMonthBadges do
 
     it "doesn't score users who haven't posted in two topics" do
       user = Fabricate(:user, created_at: 1.week.ago)
+      p = Fabricate(:post, user: user)
+      old_user = Fabricate(:user, created_at: 6.months.ago)
+      PostAction.act(old_user, p, PostActionType.types[:like])
+      old_user = Fabricate(:user, created_at: 6.months.ago)
+      PostAction.act(old_user, p, PostActionType.types[:like])
+
+      expect(granter.scores.keys).not_to include(user.id)
+    end
+
+    it "doesn't count private topics" do
+      user = Fabricate(:user, created_at: 1.week.ago)
+      topic = Fabricate(:private_message_topic)
+      Fabricate(:post, topic: topic, user: user)
       p = Fabricate(:post, user: user)
       old_user = Fabricate(:user, created_at: 6.months.ago)
       PostAction.act(old_user, p, PostActionType.types[:like])
@@ -110,11 +161,12 @@ describe Jobs::GrantNewUserOfTheMonthBadges do
       PostAction.act(u4, p, PostActionType.types[:like])
       PostAction.act(um, p, PostActionType.types[:like])
       PostAction.act(ua, p, PostActionType.types[:like])
-      expect(granter.scores[user.id]).to eq(4.425)
+      PostAction.act(Discourse.system_user, p, PostActionType.types[:like])
+      expect(granter.scores[user.id]).to eq(1.55)
 
       # It goes down the more they post
       Fabricate(:post, user: user)
-      expect(granter.scores[user.id]).to eq(2.95)
+      expect(granter.scores[user.id]).to eq(1.35625)
     end
 
     it "is limited to two accounts" do

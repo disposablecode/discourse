@@ -1,16 +1,16 @@
 require_dependency 'stylesheet/common'
+require_dependency 'global_path'
 
 module Stylesheet
   class Importer < SassC::Importer
-
-    @special_imports = {}
+    include GlobalPath
 
     def self.special_imports
-      @special_imports
+      @special_imports ||= {}
     end
 
     def self.register_import(name, &blk)
-      @special_imports[name] = blk
+      special_imports[name] = blk
     end
 
     register_import "theme_field" do
@@ -39,21 +39,32 @@ module Stylesheet
       colors.each do |n, hex|
         contents << "$#{n}: ##{hex} !default;\n"
       end
-      theme&.theme_fields&.where(type_id: ThemeField.theme_var_type_ids)&.each do |field|
-        escaped = field.value.gsub('"', "\\22")
-        escaped.gsub!("\n", "\\A")
-        contents << "$#{field.name}: unquote(\"#{escaped}\");\n"
+
+      theme&.all_theme_variables&.each do |field|
+        if field.type_id == ThemeField.types[:theme_upload_var]
+          if upload = field.upload
+            url = upload_cdn_path(upload.url)
+            contents << "$#{field.name}: unquote(\"#{url}\");\n"
+          end
+        else
+          contents << to_scss_variable(field.name, field.value)
+        end
       end
+
+      theme&.included_settings&.each do |name, value|
+        contents << to_scss_variable(name, value)
+      end
+
       Import.new("theme_variable.scss", source: contents)
     end
 
     register_import "category_backgrounds" do
       contents = ""
       Category.where('uploaded_background_id IS NOT NULL').each do |c|
-        contents << category_css(c) if c.uploaded_background
+        contents << category_css(c) if c.uploaded_background&.url.present?
       end
 
-      Import.new("categoy_background.scss", source: contents)
+      Import.new("category_background.scss", source: contents)
     end
 
     register_import "embedded_theme" do
@@ -75,8 +86,13 @@ module Stylesheet
     end
 
     def initialize(options)
+      @theme = options[:theme]
       @theme_id = options[:theme_id]
       @theme_field = options[:theme_field]
+      if @theme && !@theme_id
+        # make up an id so other stuff does not bail out
+        @theme_id = @theme.id || -1
+      end
     end
 
     def import_files(files)
@@ -116,12 +132,14 @@ COMMENT
       @theme == :nil ? nil : @theme
     end
 
-    def apply_cdn(url)
-      "#{GlobalSetting.cdn_url}#{url}"
+    def category_css(category)
+      "body.category-#{category.full_slug} { background-image: url(#{upload_cdn_path(category.uploaded_background.url)}) }\n"
     end
 
-    def category_css(category)
-      "body.category-#{category.full_slug} { background-image: url(#{apply_cdn(category.uploaded_background.url)}) }\n"
+    def to_scss_variable(name, value)
+      escaped = value.to_s.gsub('"', "\\22")
+      escaped.gsub!("\n", "\\A")
+      "$#{name}: unquote(\"#{escaped}\");\n"
     end
 
     def imports(asset, parent_path)

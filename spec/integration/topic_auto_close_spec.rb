@@ -5,10 +5,6 @@ require 'rails_helper'
 describe Topic do
   let(:job_klass) { Jobs::ToggleTopicClosed }
 
-  before do
-    job_klass.jobs.clear
-  end
-
   context 'creating a topic without auto-close' do
     let(:topic) { Fabricate(:topic, category: category) }
 
@@ -16,7 +12,7 @@ describe Topic do
       let(:category) { nil }
 
       it 'should not schedule the topic to auto-close' do
-        expect(topic.topic_status_update).to eq(nil)
+        expect(topic.public_topic_timer).to eq(nil)
         expect(job_klass.jobs).to eq([])
       end
     end
@@ -25,19 +21,14 @@ describe Topic do
       let(:category) { Fabricate(:category, auto_close_hours: nil) }
 
       it 'should not schedule the topic to auto-close' do
-        expect(topic.topic_status_update).to eq(nil)
+        expect(topic.public_topic_timer).to eq(nil)
         expect(job_klass.jobs).to eq([])
       end
     end
 
     context 'jobs may be queued' do
       before do
-        SiteSetting.queue_jobs = true
-        Timecop.freeze(Time.zone.now)
-      end
-
-      after do
-        Timecop.return
+        freeze_time
       end
 
       context 'category has a default auto-close' do
@@ -46,14 +37,14 @@ describe Topic do
         it 'should schedule the topic to auto-close' do
           topic
 
-          topic_status_update = TopicStatusUpdate.last
+          topic_status_update = TopicTimer.last
 
           expect(topic_status_update.topic).to eq(topic)
-          expect(topic.topic_status_update.execute_at).to be_within_one_second_of(2.hours.from_now)
+          expect(topic.public_topic_timer.execute_at).to be_within_one_second_of(2.hours.from_now)
 
           args = job_klass.jobs.last['args'].first
 
-          expect(args["topic_status_update_id"]).to eq(topic.topic_status_update.id)
+          expect(args["topic_timer_id"]).to eq(topic.public_topic_timer.id)
           expect(args["state"]).to eq(true)
         end
 
@@ -64,7 +55,7 @@ describe Topic do
           it 'should schedule the topic to auto-close' do
             staff_topic
 
-            topic_status_update = TopicStatusUpdate.last
+            topic_status_update = TopicTimer.last
 
             expect(topic_status_update.topic).to eq(staff_topic)
             expect(topic_status_update.execute_at).to be_within_one_second_of(2.hours.from_now)
@@ -72,18 +63,20 @@ describe Topic do
 
             args = job_klass.jobs.last['args'].first
 
-            expect(args["topic_status_update_id"]).to eq(topic_status_update.id)
+            expect(args["topic_timer_id"]).to eq(topic_status_update.id)
             expect(args["state"]).to eq(true)
           end
 
           context 'topic is closed manually' do
             it 'should remove the schedule to auto-close the topic' do
-              Timecop.freeze do
-                staff_topic.update_status('closed', true, admin)
+              freeze_time
 
-                expect(staff_topic.topic_status_update.reload.deleted_at)
-                  .to be_within(1.second).of(Time.zone.now)
-              end
+              topic_timer_id = staff_topic.public_topic_timer.id
+
+              staff_topic.update_status('closed', true, admin)
+
+              expect(TopicTimer.with_deleted.find(topic_timer_id).deleted_at)
+                .to be_within(1.second).of(Time.zone.now)
             end
           end
         end
@@ -95,7 +88,7 @@ describe Topic do
           it 'should schedule the topic to auto-close' do
             regular_user_topic
 
-            topic_status_update = TopicStatusUpdate.last
+            topic_status_update = TopicTimer.last
 
             expect(topic_status_update.topic).to eq(regular_user_topic)
             expect(topic_status_update.execute_at).to be_within_one_second_of(2.hours.from_now)
@@ -103,7 +96,7 @@ describe Topic do
 
             args = job_klass.jobs.last['args'].first
 
-            expect(args["topic_status_update_id"]).to eq(topic_status_update.id)
+            expect(args["topic_timer_id"]).to eq(topic_status_update.id)
             expect(args["state"]).to eq(true)
           end
         end
